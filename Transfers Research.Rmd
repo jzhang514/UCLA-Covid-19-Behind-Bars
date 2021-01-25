@@ -1,0 +1,473 @@
+---
+title: "Transfers Research"
+output:
+  html_document:
+    number_sections: no
+    theme: paper
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+
+---
+<style type="text/css">
+.main-container {
+  max-width: 1800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(comment=FALSE, message=FALSE, warning=FALSE, echo=FALSE
+)
+
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(htmltools)
+library(tidyverse)
+library(highcharter) 
+#options(highcharter.theme = hc_theme_smpl(tooltip = list(valueDecimals = 2)))
+library(ggalt)
+library(cowplot)
+
+```
+
+```{r include=FALSE}
+
+########################Cleaning the TRANSFER data###############################
+
+library(writexl)
+
+#import transfer excel that Shelby emailed
+transfer <- read_excel("W:/Personal/Jen Z/UCLA Covid-19 Behind Bars/Data/Transfers Clean Data_from Shelby.xlsx",
+                   sheet="Sheet3")
+
+
+#############NOTE TO SELF: column for date is getting messed up when read into r
+#cleaning data
+
+transfer <- transfer[ -c(14:20) ] #keep columns of interest
+
+#rename columns
+
+names(transfer)[names(transfer) == "Notes...1"] <- "note1"
+names(transfer)[names(transfer) == "Notes...12"] <- "note2"
+names(transfer)[names(transfer) == "Date (Approx)"] <- "date_approx"
+names(transfer)[names(transfer) == "From Facility"] <- "from_facility"
+names(transfer)[names(transfer) == "From County"] <- "from_county"
+names(transfer)[names(transfer) == "From State"] <- "from_state"
+names(transfer)[names(transfer) == "To Facility"] <- "to_facility"
+names(transfer)[names(transfer) == "#"] <- "people_count"
+names(transfer)[names(transfer) == "To (State)"] <- "to_state"
+names(transfer)[names(transfer) == "Reason"] <- "reason"
+names(transfer)[names(transfer) == "Type"] <- "type"
+names(transfer)[names(transfer) == "Facility/County"] <- "facility_county"
+
+#now fix the date column. it is currently in the excel numeric format and needs to be in a date format we understand. 
+transfer$date_approx<-format(as.Date(as.numeric(transfer$date_approx), origin = "1899-12-30"), "%m/%d/%y")
+
+#now convert the column to date format
+
+# transfer$date_approx<- ymd(transfer$date_approx)
+# 
+# #make the order of the date descending 
+# transfer<-transfer[rev(order(transfer$date_approx)),]
+
+
+```
+
+```{r, include=FALSE}
+################Lets clean up the data COVID CASE data###############################
+
+library (readr)
+
+#read in the data from github
+urlfile="https://raw.githubusercontent.com/ivnagpal/ICE-COVID19/master/immdet_df.csv"
+
+covid<-read_csv(url(urlfile))
+
+
+#make character columns numeric -EXCEPT the first column with facility names which should be character
+
+#covid<-covid %>% mutate_if(is.character,as.numeric)
+
+
+covid[,2:684] <- sapply(covid[,2:684],as.numeric)
+
+
+#replace the last '.' with a _ separater to separate the beginning DATE in the column name with the rest of the column name
+
+substring(names(covid), 9, 9) <- "_"
+
+#RENAME the 'Custody or Facility' column (first column) to something more normal
+
+colnames(covid)[1] <- "Custody_or_Facility"
+
+
+#lets convert the data from wide to long format
+covid_long<-pivot_longer(covid, cols = -Custody_or_Facility, 
+                         names_to = c("date","measure"), 
+                         names_sep = "_", 
+                         values_to = "value")
+
+
+#now I want to add a new column that has the  7 day average across the metrics (covid cases, deaths, etc.)
+
+covid_long<- covid_long%>%
+                mutate(avg7day = zoo::rollmean(value, k = 7, fill = NA))
+
+
+#now we will convert the date column from character to date for subsequent analyses
+# covid_long<-(mutate(covid_long,date=ymd(date)))
+# 
+# covid_long$date <- ymd(covid_long$date)
+
+#now I will write the data to an excel file so I can email it to Shelby
+library("writexl")
+
+# write_xlsx(covid_long, "W:/Personal/Jen Z/UCLA Covid-19 Behind Bars/Data/ICE_Covid19_downloaded 01-24-21.xlsx") #this is the file path for where I want the excel to go, anad the name I want to give the excel
+
+```
+
+
+```{r include=FALSE}
+
+test<-transfer%>%
+drop_na(date_approx)
+
+#graph
+hchart(transfer, "line",
+         hcaes(x=date_approx, y=as.numeric(people_count), group=from_facility,
+         tooltip = list(pointFormat = "Number of Transfers Made:
+                        {point.people_count}<br>")))%>%
+
+      hc_tooltip(crosshairs = TRUE)%>%
+   hc_xAxis(title = list(text = "Approximate Date of Transfer"))%>%
+  
+  
+  hc_yAxis(title = list(
+    text= 'Number of Transfers')
+    ,
+    min=0,max=50
+    )%>%
+  
+  hc_title(
+    text = "Transfers Made",
+    margin = 20,
+    align = "left",
+    style = list(useHTML = TRUE, fontWeight="bold")
+    )
+
+
+
+
+
+
+```
+
+
+# Transfers Data 
+
+## Transfers Made {.tabset .tabset-pills}
+
+### Summary of Transfers Made by Facilities
+```{r}
+####NOTE NEED TO FIX and make it so 'NA' in the people_count column are treated as 0 and still aggregated
+
+
+##########Summarize total SENT by facility############
+
+sent<-transfer%>%
+  group_by(from_facility)%>%
+  summarize(total_sent=sum(as.numeric(people_count)))
+
+#make the total  count column be in descending order
+sent<-sent[order(sent$total_sent, decreasing = TRUE),]  
+
+
+#make a prettier looking table
+
+library(kableExtra)
+kable(sent, col.names = c("Facility Name", "Total People Transferred Out"))%>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"))%>%
+   row_spec(1:5, bold = T, color = "black", background = "#E0F3F7")
+  
+
+
+```
+
+
+### Facilities who make the most transfers (Top 5)
+```{r}
+
+
+top5 <- c("Buffalo Federal Detention Facility", "Irwin County Detention Center", "Pine Prairie ICE Processing Center", 
+               "Stewart Detention Center", "South Louisiana Correctional Center")
+
+sent_top5<-transfer%>%
+  filter(from_facility %in% top5)%>%
+  group_by(from_facility)%>%
+  arrange(desc(people_count))
+
+
+
+sent_top5 %>% 
+  hchart('column', hcaes(x = from_facility, y = as.numeric(people_count), group=to_facility),
+         tooltip = list(pointFormat = "Facility Transferred to: {point.to_facility}<br>
+                        Total Number of People: {point.people_count}<br>
+                        Date of Transfer: {point.date_approx}"))%>% 
+    hc_tooltip(crosshairs = TRUE)%>%
+  hc_xAxis(title = list(text = ""))%>%
+    hc_yAxis(title = list(text = "Number of People Transferred"))%>%
+  hc_title(
+    text = "Facilities that Make the Most Transfers",
+    margin = 20,
+    align = "left",
+    style = list(useHTML = TRUE, fontWeight="bold")
+    )%>%
+  hc_subtitle(text="Where do high-transfer facilities send inmates",
+              align="left")
+
+
+
+
+```
+
+## Transfers Recieved {.tabset .tabset-pills}
+
+### Summary of Transfers Recieved by Facilities
+
+It is important to note that a majority of inmates who are being transferred are going to facilities we do not have information on (see rows in red)
+```{r}
+
+###############Summarize facilities who RECIEVED transfers#########################
+
+####NOTE NEED TO FIX and make it so 'NA' in the people_count column are treated as 0 and still aggregated
+
+recieved<-transfer%>%
+  group_by(to_facility)%>%
+  summarize(total_recieved=sum(as.numeric(people_count)))
+
+#make the total  count column be in descending order
+recieved<-recieved[order(recieved$total_recieved, decreasing = TRUE),]  
+
+
+#make a prettier looking table
+
+library(kableExtra)
+
+kable(recieved, col.names = c("Facility Name", "Total Transfers Recieved"))%>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"))%>%
+   row_spec(2:3, bold = T, color = "black", background = "#E0F3F7")%>%
+     row_spec(5, bold = T, color = "black", background = "#E0F3F7")%>%
+       row_spec(1, bold = T, color = "black", background = "#F7E4E0")%>%
+       row_spec(4, bold = T, color = "black", background = "#F7E4E0")
+
+```
+
+### Facilities who recieved the most transfers (Top 5)
+```{r}
+top3 <- c("Prairieland Detention Facility",	
+"Stewart Detention Center",	
+"Broward Transitional Center")
+
+
+recieve_top3<-transfer%>%
+  filter(to_facility %in% top3)%>%
+  group_by(to_facility)%>%
+  arrange(desc(people_count))
+
+#graph
+
+recieve_top3 %>% 
+  hchart('column', hcaes(x = to_facility, y = as.numeric(people_count), group=from_facility),
+         tooltip = list(pointFormat = "Facility Transferred to: {point.to_facility}<br>
+                        Total Number of People: {point.people_count}<br>
+                        Date Transfer Recieved: {point.date_approx:%H:%M}"))%>%
+  hc_tooltip(crosshairs = TRUE)%>%
+  hc_xAxis(title = list(text = ""))%>%
+    hc_yAxis(title = list(text = "Number of People Transferred"))%>%
+  hc_title(
+    text = "Facilities that Recieve Most Transfers",
+    margin = 20,
+    align = "left",
+    style = list(useHTML = TRUE, fontWeight="bold")
+    )%>%
+  hc_subtitle(text="Where to facilities recieve transfers from",
+              align="left")
+
+
+```
+
+
+# Active Covid Cases Data from Top Facilities {.tabset .tabset-pills}
+
+## Top 5 Facilities Covid Cases
+
+```{r}
+library(htmltools)
+library(htmlwidgets)
+library(highcharter)
+
+top5<-covid_long%>%
+  filter(grepl('Total confirmed COVID-19 cases', measure))%>%
+  filter(grepl("Broward|Glades|Krome|Stewart|Wakulla", Custody_or_Facility))
+
+top5$date<-mdy(top5$date)
+
+
+#graph --NOTE: do we want to plot the '7 day average' or the actual cases' ?
+
+  highcharter::hchart(top5, hcaes(x='date', y='value', group='Custody_or_Facility'), type="line")%>%
+    hc_yAxis(title=list(text="Number of confirmed cases"))%>%
+    hc_xAxis(type = 'datetime', title=list(text=""))
+  
+  # highcharter::hchart(state_race_subset, hcaes(x = 'date', y = 'avg_7day_cases_rate_ratio', group = 'race_ethn'), type = "line",
+  #               tooltip = list(pointFormat = "{point.race_ethn} <br> The 7-day average case rate among {point.race_ethn}s was <br> {point.avg_7day_cases_rate_ratio} times the case rate of the lowest group on this day <br> {point.avg_new_7day_cases_rate} new cases per 100,000 in the past 7 days")) %>%
+  # hc_yAxis(title = list(text = "X times the 7-day average of the lowest group")) %>%
+  # # hc_xAxis(title = list(text = "Race/Ethnicity")) %>%
+  #   hc_tooltip(crosshairs = TRUE) %>%
+  # hc_xAxis(type = 'datetime',plotLines=plotLines)
+
+  
+             
+```
+
+## Prairieland Detention Facility 
+
+```{r}
+
+
+prarieland<-covid_long%>%
+  #filter(grepl('Total confirmed COVID-19 cases', measure))%>% ###NOTE we can choose if we only want to look at cases or other metrics like death 
+  filter(grepl("Prairieland", Custody_or_Facility))
+
+#convert data column
+
+prarieland$date<-mdy(prarieland$date)
+
+
+#grab transfer-recieved dates and make into a data frame
+
+datevector<-c("10/09/20", "10/08/20", "10/07/20", "10/07/20", "10/05/20", "8/26/20", "8/25/20", "4/11/20")
+
+datevector<-data.frame(datevector)
+
+datevector$datevector <- mdy(datevector$datevector)
+
+
+#create a plotline function for all the transfer dates
+
+plotLines <- list();
+for (i in 1:nrow(datevector)){
+  plotLines[[i]] <- list(
+    color = "#FF0000",
+    width = 0.5,
+    label=list(text='Transfer Recieved'),
+    value = datetime_to_timestamp(as.Date(datevector[i,], tz = 'UTC')))
+}
+
+
+
+# graph
+
+  highcharter::hchart(prarieland, "line", hcaes(x=date, y=value, group=measure))%>%
+    hc_yAxis(title=list(text="Number of confirmed cases"))%>%
+  hc_xAxis(type = 'datetime',plotLines=plotLines)
+
+```
+
+## Stewart Detention Center
+
+```{r}
+
+
+stewart<-covid_long%>%
+  #filter(grepl('Total confirmed COVID-19 cases', measure))%>%
+  filter(grepl("Stewart", Custody_or_Facility))
+
+#convert data column
+stewart$date<-mdy(stewart$date)
+
+
+#grab transfer-recieved dates and make into a data frame
+
+datevector<-c("10/08/20", "09/08/20", "08/31/20", "08/04/20", "06/15/20", "06/11/20", "05/26/20", "05/15/20", "05/14/20")
+
+datevector<-data.frame(datevector)
+
+datevector$datevector <- mdy(datevector$datevector)
+
+
+#create a plotline function for all the transfer dates
+
+plotLines <- list();
+for (i in 1:nrow(datevector)){
+  plotLines[[i]] <- list(
+    color = "#FF0000",
+    width = 0.5,
+    label=list(text='Transfer Recieved'),
+    value = datetime_to_timestamp(as.Date(datevector[i,], tz = 'UTC')))
+}
+
+
+
+# graph
+
+  highcharter::hchart(stewart, "line", hcaes(x=date, y=value, group=measure))%>%
+    hc_yAxis(title=list(text="Number of confirmed cases"))%>%
+  hc_xAxis(type = 'datetime',plotLines=plotLines)
+  
+
+```
+
+## Broward Detention Center
+
+```{r}
+
+
+broward<-covid_long%>%
+  #filter(grepl('Total confirmed COVID-19 cases', measure))%>%
+  filter(grepl("Broward", Custody_or_Facility))
+
+#convert data column
+broward$date<-mdy(broward$date)
+
+
+#grab transfer-recieved dates and make into a data frame
+
+datevector<-c("02/20/10", "12/20/06")
+
+datevector<-data.frame(datevector)
+
+datevector$datevector <- mdy(datevector$datevector)
+
+
+#create a plotline function for all the transfer dates
+
+plotLines <- list();
+for (i in 1:nrow(datevector)){
+  plotLines[[i]] <- list(
+    color = "#FF0000",
+    width = 0.5,
+    label=list(text='Transfer Recieved'),
+    value = datetime_to_timestamp(as.Date(datevector[i,], tz = 'UTC')))
+}
+
+
+
+# graph
+
+  highcharter::hchart(broward, "line", hcaes(x=date, y=value, group=measure))%>%
+    hc_yAxis(title=list(text="Number of confirmed cases"))%>%
+  hc_xAxis(type = 'datetime',plotLines=plotLines)
+  
+
+```
