@@ -136,7 +136,7 @@ library("writexl")
 
 
 
-# Summary of Transfers Made and Recieved Between April and October 2020
+# Summary of Transfers Made and Recieved
 
 <br> __Note that Golden State Annex, and Mesa Verde ICE Processing Center are not in the current transfer data we have.__<br><br>
 
@@ -159,7 +159,7 @@ sent<-sent[order(sent$total_sent, decreasing = TRUE),]
 #make a prettier looking table
 
 library(kableExtra)
-kable(sent, col.names = c("Facility Name", "Total People Transferred Out"))%>%
+kable(sent, col.names = c("Facility Name", "Total People Transferred Out from April to October 2020"))%>%
     kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
   
 
@@ -222,7 +222,7 @@ recieve<-recieve[order(recieve$total_sent, decreasing = TRUE),]
 
 #make a prettier looking table
 
-kable(recieve, col.names = c("Facility Name", "Total People Recieved in Transfers"))%>%
+kable(recieve, col.names = c("Facility Name", "Total People Recieved in Transfers from April to October 2020"))%>%
     kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
   
 
